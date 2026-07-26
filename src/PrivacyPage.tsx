@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 const EFFECTIVE_DATE = 'July 26, 2026';
-const CONTACT_EMAIL = 'ameetsondhi@gmail.com';
+const CONTACT_EMAIL = 'minimalclock@ivaan.cc';
 
 export default function PrivacyPage() {
   const [isDarkMode] = useState(() => {
