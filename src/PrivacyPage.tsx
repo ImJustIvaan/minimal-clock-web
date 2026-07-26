@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const EFFECTIVE_DATE = 'July 26, 2026';
 const CONTACT_EMAIL = 'minimalclock@ivaan.cc';
@@ -11,6 +11,15 @@ export default function PrivacyPage() {
     } catch {}
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+
+  // The browser tries to jump to the URL's #hash before React has rendered
+  // any content, so a direct link like /privacy#deleting-your-data lands
+  // at the top of the page instead. Scroll to it ourselves once mounted.
+  useEffect(() => {
+    if (!window.location.hash) return;
+    const el = document.getElementById(window.location.hash.slice(1));
+    el?.scrollIntoView();
+  }, []);
 
   const bg = isDarkMode ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900';
   const muted = isDarkMode ? 'text-zinc-400' : 'text-zinc-500';
@@ -88,7 +97,7 @@ export default function PrivacyPage() {
             </p>
           </section>
 
-          <section>
+          <section id="deleting-your-data">
             <h2 className={`text-lg font-medium mb-2 ${heading}`}>Deleting your data</h2>
             <p>
               You can delete any countdown you own at any time from within the app. On the phone
