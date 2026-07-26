@@ -1,0 +1,5 @@
+{
+  "name": "Minimal Clock by Ivaan",
+  "description": "A minimal clock displaying the current time, date, and week number with theme and format toggles.",
+  "requestFramePermissions": []
+}
