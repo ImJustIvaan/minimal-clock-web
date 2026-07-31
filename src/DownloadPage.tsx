@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Clock, ChevronDown, ChevronUp, Download, X } from 'lucide-react';
 
 const APK_URL = 'https://github.com/ImJustIvaan/Minimal-Clock-Mobile/releases/download/MajorUpdates/MinimalClock.apk';
-const IPA_URL = 'https://github.com/ImJustIvaan/Minimal-Clock-Mobile/releases/download/MajorUpdates/MinimalClock.ipa';
+const IOS_APPSTORE_URL = 'https://apps.apple.com/app/minimal-clock/id6795197112';
 const WIN_X64_URL = 'https://github.com/ImJustIvaan/Minimal-Clock-Desktop/releases/download/v1.0.0/MinimalClock-x64.exe';
 const WIN_ARM_URL = 'https://github.com/ImJustIvaan/Minimal-Clock-Desktop/releases/download/v1.0.0/MinimalClock-arm64.exe';
 const MAC_DMG_URL = 'https://github.com/ImJustIvaan/Minimal-Clock-Desktop/releases/download/v1.0.0/MinimalClock.dmg';
@@ -33,8 +33,7 @@ const platforms: Platform[] = [
     id: 'ios',
     emoji: '🍎',
     name: 'iPhone & iPad (iOS)',
-    downloadUrl: IPA_URL,
-    downloadNote: 'Requires AltStore, Sideloadly, or similar to install.',
+    downloadUrl: IOS_APPSTORE_URL,
     steps: [],
   },
   {
