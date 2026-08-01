@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Clock, Timer, Play, Pause, RotateCcw, Hourglass, Globe, Search, X, CalendarClock, Share2, Check, User, LogOut, Bell, BellOff, Download, EyeOff, Eye, Type } from 'lucide-react';
+import { Sun, Moon, Clock, Timer, Play, Pause, RotateCcw, Hourglass, Globe, Search, X, CalendarClock, Share2, Check, User, LogOut, Bell, BellOff, Download, EyeOff, Eye, Type, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { supabase } from './lib/supabaseClient';
