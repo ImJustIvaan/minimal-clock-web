@@ -551,6 +551,20 @@ function LinuxCard() {
                 Download for Linux
               </button>
             </div>
+            <div className="mt-5">
+              <a
+                href="https://snapcraft.io/minimal-clock"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block hover:opacity-90 active:scale-[0.98] transition-all"
+              >
+                <img
+                  src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg"
+                  alt="Get it from the Snap Store"
+                  className="h-14 w-auto"
+                />
+              </a>
+            </div>
             <p className="text-xs opacity-40 mt-4 mb-2">or use</p>
             <div>
               <PackageDropdown label="APT (Ubuntu / Debian)" command={APT_COMMAND} />
