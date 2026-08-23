@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Clock, Timer, Play, Pause, RotateCcw, Hourglass, Globe, Search, X, CalendarClock, Share2, Check, User, LogOut, Bell, BellOff, Download, EyeOff, Eye, Type, Smartphone } from 'lucide-react';
+import { Sun, Moon, Clock, Timer, Play, Pause, RotateCcw, Hourglass, Globe, Search, X, CalendarClock, Share2, Check, User, LogOut, Bell, BellOff, Download, EyeOff, Eye, Type, Smartphone, Pin, Trash2, Plus, Tags } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { supabase } from './lib/supabaseClient';
@@ -284,7 +284,7 @@ export default function App() {
   const [isSharedCountdown] = useState(() => !!new URLSearchParams(window.location.search).get('c'));
   const [sharedCountdownData, setSharedCountdownData] = useState<{ id: string; title: string; target: string } | null>(null);
 
-  type Countdown = { id: string; title: string; target: string; slug: string; synced?: boolean };
+  type Countdown = { id: string; title: string; target: string; slug: string; category?: string; synced?: boolean };
   const [countdowns, setCountdowns] = useState<Countdown[]>(() => {
     try {
       const saved = localStorage.getItem('countdowns');
@@ -305,8 +305,30 @@ export default function App() {
   const countdownTitle = isSharedCountdown ? (sharedCountdownData?.title || '') : (activeCountdown?.title || '');
   const countdownTarget = isSharedCountdown ? (sharedCountdownData?.target || '') : (activeCountdown?.target || '');
   const countdownSlug = activeCountdown?.slug || '';
+  const countdownCategories = Array.from(new Set(countdowns.map(c => c.category).filter((c): c is string => !!c)));
 
   const [showCountdownList, setShowCountdownList] = useState(false);
+
+  // Per-user pin preference — kept separate from the countdown record itself
+  // (like the notify preference below) since a shared countdown can be
+  // pinned independently by each person following it.
+  const [pinnedCountdownIds, setPinnedCountdownIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('pinnedCountdownIds');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const togglePinCountdown = (id: string) => {
+    setPinnedCountdownIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
+
+  // Pinned-first sort, then optionally filtered by category — pin state is
+  // a per-viewer preference (pinnedCountdownIds), category is on the record.
+  const sortedCountdowns = [...countdowns]
+    .filter(c => categoryFilter === 'All' || (c.category || 'Uncategorized') === categoryFilter)
+    .sort((a, b) => Number(pinnedCountdownIds.includes(b.id)) - Number(pinnedCountdownIds.includes(a.id)));
 
   // Countdown setup modal
   const [showCountdownSetup, setShowCountdownSetup] = useState(false);
@@ -315,6 +337,7 @@ export default function App() {
   const [setupTarget, setSetupTarget] = useState('');
   const [setupSlug, setSetupSlug] = useState('');
   const [setupSlugTouched, setSetupSlugTouched] = useState(false);
+  const [setupCategory, setSetupCategory] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -347,24 +370,56 @@ export default function App() {
     })();
   }, [sharedCountdownId]);
 
-  // Timer States
+  // Timer States — multiple independent countdown timers can run at once,
+  // kept as a keyed collection (one entry per id) rather than one global
+  // timer state.
+  type RunningTimer = {
+    id: string;
+    label: string;
+    duration: number;
+    remaining: number;
+    running: boolean;
+    endTime: number | null;
+    done: boolean;
+    notified: boolean;
+  };
+  const [timers, setTimers] = useState<RunningTimer[]>(() => {
+    try {
+      const saved = localStorage.getItem('timers');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
   const [timerDuration, setTimerDuration] = useState(() => {
     return Number(localStorage.getItem('timerDuration')) || 300;
   });
-  const [timerRemaining, setTimerRemaining] = useState(() => {
-    const saved = localStorage.getItem('timerRemaining');
-    return saved !== null ? Number(saved) : 300;
+  const [timerLabel, setTimerLabel] = useState('');
+  const [timerInputMode, setTimerInputMode] = useState<'duration' | 'until' | 'stopwatch'>(() => {
+    return (localStorage.getItem('timerInputMode') as 'duration' | 'until' | 'stopwatch') || 'duration';
   });
-  const [isTimerRunning, setIsTimerRunning] = useState(() => {
-    return localStorage.getItem('isTimerRunning') === 'true';
+
+  // Stopwatch — anchored to a wall-clock timestamp (elapsedSoFar + (now -
+  // segmentStartTime)) rather than incrementing a counter per tick, so time
+  // spent backgrounded/inactive isn't silently dropped.
+  const [swElapsedMs, setSwElapsedMs] = useState(() => {
+    return Number(localStorage.getItem('swElapsedMs')) || 0;
   });
-  const [timerEndTime, setTimerEndTime] = useState<number | null>(() => {
-    const saved = localStorage.getItem('timerEndTime');
+  const [swRunning, setSwRunning] = useState(() => {
+    return localStorage.getItem('swRunning') === 'true';
+  });
+  const [swSegmentStart, setSwSegmentStart] = useState<number | null>(() => {
+    const saved = localStorage.getItem('swSegmentStart');
     return saved ? Number(saved) : null;
   });
-  const [timerInputMode, setTimerInputMode] = useState<'duration' | 'until'>(() => {
-    return (localStorage.getItem('timerInputMode') as 'duration' | 'until') || 'duration';
+  const [swDisplayMs, setSwDisplayMs] = useState(() => {
+    const elapsed = Number(localStorage.getItem('swElapsedMs')) || 0;
+    const running = localStorage.getItem('swRunning') === 'true';
+    const segStart = Number(localStorage.getItem('swSegmentStart')) || null;
+    return running && segStart ? elapsed + (Date.now() - segStart) : elapsed;
   });
+  useEffect(() => {
+    if (!swRunning) setSwDisplayMs(swElapsedMs);
+  }, [swElapsedMs, swRunning]);
   const [untilH, setUntilH] = useState(() => localStorage.getItem('untilH') || '12');
   const [untilM, setUntilM] = useState(() => localStorage.getItem('untilM') || '00');
   const [untilAmPm, setUntilAmPm] = useState<'AM' | 'PM'>(() => {
@@ -384,13 +439,15 @@ export default function App() {
   useEffect(() => { localStorage.setItem('hideUI', String(hideUI)); }, [hideUI]);
   useEffect(() => { localStorage.setItem('clockFont', clockFont); }, [clockFont]);
   useEffect(() => { localStorage.setItem('timerDuration', String(timerDuration)); }, [timerDuration]);
-  useEffect(() => { localStorage.setItem('timerRemaining', String(timerRemaining)); }, [timerRemaining]);
-  useEffect(() => { localStorage.setItem('isTimerRunning', String(isTimerRunning)); }, [isTimerRunning]);
-  useEffect(() => {
-    if (timerEndTime) localStorage.setItem('timerEndTime', String(timerEndTime));
-    else localStorage.removeItem('timerEndTime');
-  }, [timerEndTime]);
+  useEffect(() => { localStorage.setItem('timers', JSON.stringify(timers)); }, [timers]);
   useEffect(() => { localStorage.setItem('timerInputMode', timerInputMode); }, [timerInputMode]);
+  useEffect(() => { localStorage.setItem('swElapsedMs', String(swElapsedMs)); }, [swElapsedMs]);
+  useEffect(() => { localStorage.setItem('swRunning', String(swRunning)); }, [swRunning]);
+  useEffect(() => {
+    if (swSegmentStart) localStorage.setItem('swSegmentStart', String(swSegmentStart));
+    else localStorage.removeItem('swSegmentStart');
+  }, [swSegmentStart]);
+  useEffect(() => { localStorage.setItem('pinnedCountdownIds', JSON.stringify(pinnedCountdownIds)); }, [pinnedCountdownIds]);
   useEffect(() => { localStorage.setItem('untilH', untilH); }, [untilH]);
   useEffect(() => { localStorage.setItem('untilM', untilM); }, [untilM]);
   useEffect(() => { localStorage.setItem('untilAmPm', untilAmPm); }, [untilAmPm]);
@@ -406,17 +463,26 @@ export default function App() {
   useEffect(() => {
     if (!user || isSharedCountdown) return;
     (async () => {
-      const { data } = await supabase
+      // Try with category first; if that column doesn't exist yet, retry without it
+      let data: { id: string; title: string; target_date: string; slug: string | null; category?: string | null }[] | null;
+      ({ data } = await supabase
         .from('countdowns')
-        .select('id, title, target_date, slug')
+        .select('id, title, target_date, slug, category')
         .eq('owner_id', user.id)
-        .eq('is_personal', true);
+        .eq('is_personal', true));
+      if (!data) {
+        ({ data } = await supabase
+          .from('countdowns')
+          .select('id, title, target_date, slug')
+          .eq('owner_id', user.id)
+          .eq('is_personal', true));
+      }
       if (!data || data.length === 0) return;
       setCountdowns(prev => {
         const remoteIds = new Set(data.map((r: {id: string}) => r.id));
         const localOnly = prev.filter(c => !remoteIds.has(c.id));
-        const remote: Countdown[] = data.map((r: {id: string; title: string; target_date: string; slug: string | null}) => ({
-          id: r.id, title: r.title, target: r.target_date, slug: r.slug || '', synced: true,
+        const remote: Countdown[] = data.map((r: {id: string; title: string; target_date: string; slug: string | null; category?: string | null}) => ({
+          id: r.id, title: r.title, target: r.target_date, slug: r.slug || '', category: r.category || '', synced: true,
         }));
         return [...remote, ...localOnly];
       });
@@ -429,11 +495,19 @@ export default function App() {
     const toSync = countdowns.filter(c => !c.synced);
     if (toSync.length === 0) return;
     (async () => {
-      await supabase.from('countdowns').upsert(
-        toSync.map(c => ({ id: c.id, owner_id: user.id, title: c.title, target_date: c.target, slug: c.slug || null, is_personal: true })),
+      let { error } = await supabase.from('countdowns').upsert(
+        toSync.map(c => ({ id: c.id, owner_id: user.id, title: c.title, target_date: c.target, slug: c.slug || null, category: c.category || null, is_personal: true })),
         { onConflict: 'id' }
       );
-      setCountdowns(prev => prev.map(c => toSync.some(s => s.id === c.id) ? { ...c, synced: true } : c));
+      if (error) {
+        ({ error } = await supabase.from('countdowns').upsert(
+          toSync.map(c => ({ id: c.id, owner_id: user.id, title: c.title, target_date: c.target, slug: c.slug || null, is_personal: true })),
+          { onConflict: 'id' }
+        ));
+      }
+      if (!error) {
+        setCountdowns(prev => prev.map(c => toSync.some(s => s.id === c.id) ? { ...c, synced: true } : c));
+      }
     })();
   }, [user, countdowns, isSharedCountdown]);
 
@@ -451,19 +525,17 @@ export default function App() {
     }
   }, [is24Hour]);
 
-  // Sync timer on mount if it was running
+  // Sync timers on mount if any were running — recompute remaining from the
+  // wall-clock end time so backgrounded/closed-tab time isn't lost.
   useEffect(() => {
-    if (isTimerRunning && timerEndTime) {
-      const now = Date.now();
-      const left = Math.max(0, Math.ceil((timerEndTime - now) / 1000));
-      if (left === 0) {
-        setIsTimerRunning(false);
-        setTimerEndTime(null);
-        setTimerRemaining(0);
-      } else {
-        setTimerRemaining(left);
-      }
-    }
+    const now = Date.now();
+    setTimers(prev => prev.map(t => {
+      if (!t.running || !t.endTime) return t;
+      const left = Math.max(0, Math.ceil((t.endTime - now) / 1000));
+      return left === 0
+        ? { ...t, running: false, endTime: null, remaining: 0, done: true }
+        : { ...t, remaining: left };
+    }));
   }, []);
 
   // Main Interval
@@ -513,18 +585,32 @@ export default function App() {
         }
       }
 
-      if (isTimerRunning && timerEndTime) {
-        const nowMs = Date.now();
-        const left = Math.max(0, Math.ceil((timerEndTime - nowMs) / 1000));
-        setTimerRemaining(left);
-        if (left === 0) {
-          setIsTimerRunning(false);
-          setTimerEndTime(null);
-        }
+      const nowMs = Date.now();
+
+      setTimers(prev => {
+        let changed = false;
+        const next = prev.map(t => {
+          if (!t.running || !t.endTime) return t;
+          const left = Math.max(0, Math.ceil((t.endTime - nowMs) / 1000));
+          if (left === t.remaining) return t;
+          changed = true;
+          if (left === 0) {
+            if (!t.notified && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification(`⏰ ${t.label || 'Timer'} is done!`, { body: "Time's up!", icon: '/favicon.ico' });
+            }
+            return { ...t, remaining: 0, running: false, endTime: null, done: true, notified: true };
+          }
+          return { ...t, remaining: left };
+        });
+        return changed ? next : prev;
+      });
+
+      if (swRunning && swSegmentStart) {
+        setSwDisplayMs(swElapsedMs + (nowMs - swSegmentStart));
       }
     }, 100);
     return () => clearInterval(interval);
-  }, [isTimerRunning, timerEndTime, selectedTimezone]);
+  }, [selectedTimezone, swRunning, swSegmentStart, swElapsedMs]);
 
   // Clock Formatting
   const tz = selectedTimezone === 'Local' ? undefined : selectedTimezone;
@@ -543,36 +629,75 @@ export default function App() {
   const tzDate = new Date(time.toLocaleString('en-US', { timeZone: tz }));
   const weekNumber = getWeekNumber(tzDate);
 
-  // Timer Controls
-  const toggleTimer = () => {
-    if (isTimerRunning) {
-      setIsTimerRunning(false);
-      setTimerEndTime(null);
-    } else {
-      if (isEditing && timerInputMode === 'until') {
-        const now = new Date();
-        const target = new Date(now);
-        
-        let h = parseInt(untilH) || 0;
-        if (!is24Hour) {
-          if (untilAmPm === 'PM' && h < 12) h += 12;
-          if (untilAmPm === 'AM' && h === 12) h = 0;
-        }
-        
-        target.setHours(h, parseInt(untilM) || 0, 0, 0);
-        if (target.getTime() <= now.getTime()) {
-          target.setDate(target.getDate() + 1);
-        }
-        const diffSeconds = Math.ceil((target.getTime() - now.getTime()) / 1000);
-        setTimerDuration(diffSeconds);
-        setTimerRemaining(diffSeconds);
-        setIsTimerRunning(true);
-        setTimerEndTime(Date.now() + diffSeconds * 1000);
-      } else if (timerRemaining > 0) {
-        setIsTimerRunning(true);
-        setTimerEndTime(Date.now() + timerRemaining * 1000);
+  // Timer Controls — starts a new independent timer and adds it to the list
+  const startNewTimer = () => {
+    let durationSeconds = timerDuration;
+    if (timerInputMode === 'until') {
+      const now = new Date();
+      const target = new Date(now);
+
+      let h = parseInt(untilH) || 0;
+      if (!is24Hour) {
+        if (untilAmPm === 'PM' && h < 12) h += 12;
+        if (untilAmPm === 'AM' && h === 12) h = 0;
       }
+
+      target.setHours(h, parseInt(untilM) || 0, 0, 0);
+      if (target.getTime() <= now.getTime()) {
+        target.setDate(target.getDate() + 1);
+      }
+      durationSeconds = Math.ceil((target.getTime() - now.getTime()) / 1000);
     }
+    if (durationSeconds <= 0) return;
+    const id = crypto.randomUUID();
+    setTimers(prev => [...prev, {
+      id, label: timerLabel.trim(), duration: durationSeconds, remaining: durationSeconds,
+      running: true, endTime: Date.now() + durationSeconds * 1000, done: false, notified: false,
+    }]);
+    setTimerLabel('');
+  };
+
+  const toggleTimerRun = (id: string) => {
+    setTimers(prev => prev.map(t => {
+      if (t.id !== id) return t;
+      if (t.running) {
+        return { ...t, running: false, endTime: null };
+      }
+      if (t.remaining <= 0) return t;
+      return { ...t, running: true, endTime: Date.now() + t.remaining * 1000, done: false };
+    }));
+  };
+
+  const resetTimerItem = (id: string) => {
+    setTimers(prev => prev.map(t => t.id === id ? { ...t, running: false, endTime: null, remaining: t.duration, done: false, notified: false } : t));
+  };
+
+  const removeTimer = (id: string) => {
+    setTimers(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Stopwatch Controls — elapsed time is anchored to a wall-clock segment
+  // start timestamp, so pausing/resuming (and backgrounding the tab) never
+  // silently drops time.
+  const toggleStopwatch = () => {
+    if (swRunning) {
+      const now = Date.now();
+      const newElapsed = swElapsedMs + (now - (swSegmentStart ?? now));
+      setSwElapsedMs(newElapsed);
+      setSwDisplayMs(newElapsed);
+      setSwRunning(false);
+      setSwSegmentStart(null);
+    } else {
+      setSwSegmentStart(Date.now());
+      setSwRunning(true);
+    }
+  };
+
+  const resetStopwatch = () => {
+    setSwRunning(false);
+    setSwSegmentStart(null);
+    setSwElapsedMs(0);
+    setSwDisplayMs(0);
   };
 
   const handleUntilBlur = (type: 'h' | 'm') => {
@@ -594,12 +719,6 @@ export default function App() {
     }
   };
 
-  const resetTimer = () => {
-    setIsTimerRunning(false);
-    setTimerEndTime(null);
-    setTimerRemaining(timerDuration);
-  };
-
   const handleDurationChange = (type: 'h' | 'm' | 's', value: string) => {
     let num = parseInt(value) || 0;
     let h = Math.floor(timerDuration / 3600);
@@ -612,7 +731,6 @@ export default function App() {
 
     const newDuration = h * 3600 + m * 60 + s;
     setTimerDuration(newDuration);
-    setTimerRemaining(newDuration);
   };
 
   const formatTimer = (totalSeconds: number) => {
@@ -625,7 +743,20 @@ export default function App() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const isEditing = !isTimerRunning && timerRemaining === timerDuration;
+  // mm:ss.hundredths, switching to h:mm:ss.hundredths past an hour
+  const formatStopwatch = (ms: number) => {
+    const totalHundredths = Math.floor(ms / 10);
+    const hundredths = totalHundredths % 100;
+    const totalSeconds = Math.floor(totalHundredths / 100);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    const hh = hundredths.toString().padStart(2, '0');
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${hh}`;
+    }
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${hh}`;
+  };
 
   // Countdown Logic
   const countdownTargetDate = countdownTarget ? new Date(countdownTarget) : null;
@@ -830,6 +961,22 @@ export default function App() {
                   />
                   <p className="text-xs opacity-40 mt-1">Used in the share link: ?c=my-birthday</p>
                 </div>
+                <div>
+                  <label className="text-sm font-medium opacity-60 mb-1 block">Category</label>
+                  <input
+                    type="text"
+                    list="countdown-categories"
+                    value={setupCategory}
+                    onChange={(e) => setSetupCategory(e.target.value)}
+                    placeholder="e.g. Birthdays, Trips, Work"
+                    className={`w-full px-4 py-3 rounded-xl outline-none text-sm font-medium focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 ${isDarkMode ? 'bg-zinc-800' : 'bg-zinc-100'}`}
+                  />
+                  <datalist id="countdown-categories">
+                    {Array.from(new Set(countdowns.map(c => c.category).filter(Boolean))).map(cat => (
+                      <option key={cat} value={cat} />
+                    ))}
+                  </datalist>
+                </div>
               </div>
               <button
                 disabled={!setupTitle.trim() || !setupTarget}
@@ -837,12 +984,13 @@ export default function App() {
                   const title = setupTitle.trim();
                   const target = new Date(setupTarget).toISOString();
                   const slug = setupSlug.trim();
+                  const category = setupCategory.trim();
                   if (editingCountdownId) {
-                    setCountdowns(prev => prev.map(c => c.id === editingCountdownId ? { ...c, title, target, slug, synced: false } : c));
+                    setCountdowns(prev => prev.map(c => c.id === editingCountdownId ? { ...c, title, target, slug, category, synced: false } : c));
                     setActiveCountdownId(editingCountdownId);
                   } else {
                     const newId = crypto.randomUUID();
-                    setCountdowns(prev => [...prev, { id: newId, title, target, slug, synced: false }]);
+                    setCountdowns(prev => [...prev, { id: newId, title, target, slug, category, synced: false }]);
                     setActiveCountdownId(newId);
                   }
                   setEditingCountdownId(null);
@@ -885,20 +1033,43 @@ export default function App() {
               className={`max-w-sm w-full p-6 rounded-3xl shadow-2xl ${isDarkMode ? 'bg-zinc-900 text-zinc-50' : 'bg-white text-zinc-900'}`}
             >
               <h2 className="text-xl font-bold mb-4 tracking-tight">My Countdowns</h2>
+              {countdownCategories.length > 0 && (
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className={`w-full mb-3 px-3 py-2 rounded-xl outline-none text-sm font-medium cursor-pointer ${isDarkMode ? 'bg-zinc-800' : 'bg-zinc-100'}`}
+                >
+                  <option value="All">All Categories</option>
+                  {countdownCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              )}
               <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
-                {countdowns.map(c => (
+                {sortedCountdowns.map(c => (
                   <div key={c.id} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${c.id === activeCountdown?.id ? (isDarkMode ? 'bg-zinc-700' : 'bg-zinc-100') : 'hover:bg-zinc-500/10'}`}
                     onClick={() => { setActiveCountdownId(c.id); setShowCountdownList(false); }}
                   >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePinCountdown(c.id); }}
+                      className={`shrink-0 p-1 rounded-full transition-colors cursor-pointer ${pinnedCountdownIds.includes(c.id) ? 'text-amber-500' : 'opacity-30 hover:opacity-70'}`}
+                      title={pinnedCountdownIds.includes(c.id) ? 'Unpin' : 'Pin to top'}
+                    >
+                      <Pin size={16} fill={pinnedCountdownIds.includes(c.id) ? 'currentColor' : 'none'} />
+                    </button>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{c.title || 'Untitled'}</div>
-                      <div className="text-xs opacity-50 truncate">{c.target ? new Date(c.target).toLocaleDateString() : '—'}</div>
+                      <div className="text-xs opacity-50 truncate flex items-center gap-2">
+                        <span>{c.target ? new Date(c.target).toLocaleDateString() : '—'}</span>
+                        {c.category && <span className="px-1.5 py-0.5 rounded-full bg-zinc-500/10">{c.category}</span>}
+                      </div>
                     </div>
                     <button
                       onClick={(e) => {
                           e.stopPropagation();
                           setCountdowns(prev => prev.filter(x => x.id !== c.id));
                           if (activeCountdown?.id === c.id) setActiveCountdownId(null);
+                          setPinnedCountdownIds(prev => prev.filter(x => x !== c.id));
                           if (user) supabase.from('countdowns').delete().eq('id', c.id).eq('owner_id', user.id);
                         }}
                       className="opacity-30 hover:opacity-80 transition-opacity text-red-500 font-bold px-2"
@@ -908,7 +1079,7 @@ export default function App() {
                 ))}
               </div>
               <button
-                onClick={() => { setShowCountdownList(false); setEditingCountdownId(null); setSetupTitle(''); setSetupTarget(''); setSetupSlug(''); setSetupSlugTouched(false); setShowCountdownSetup(true); }}
+                onClick={() => { setShowCountdownList(false); setEditingCountdownId(null); setSetupTitle(''); setSetupTarget(''); setSetupSlug(''); setSetupSlugTouched(false); setSetupCategory(''); setShowCountdownSetup(true); }}
                 className="mt-4 w-full py-3 rounded-xl border-2 border-current/20 font-medium hover:bg-zinc-500/10 transition-colors cursor-pointer text-sm"
               >+ New Countdown</button>
             </motion.div>
@@ -1018,6 +1189,7 @@ export default function App() {
                 setSetupTarget('');
                 setSetupSlug('');
                 setSetupSlugTouched(false);
+                setSetupCategory('');
                 setShowCountdownSetup(true);
               }
             }}
@@ -1146,127 +1318,191 @@ export default function App() {
           <AnalogClock time={time} tz={tz} showSeconds={showSeconds} />
         </div>
       ) : viewMode === 'timer' ? (
-        <div className="flex flex-col items-center gap-12">
-          {isEditing && (
-            <div className="flex items-center gap-2 bg-zinc-500/10 p-1 rounded-full absolute top-24">
-              <button
-                onClick={() => setTimerInputMode('duration')}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${timerInputMode === 'duration' ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900' : 'opacity-60 hover:opacity-100'}`}
-              >
-                Duration
-              </button>
-              <button
-                onClick={() => setTimerInputMode('until')}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${timerInputMode === 'until' ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900' : 'opacity-60 hover:opacity-100'}`}
-              >
-                Until Time
-              </button>
-            </div>
-          )}
-
-          {isEditing ? (
-            timerInputMode === 'until' ? (
-              <div className="flex items-center justify-center text-[12vw] font-bold tracking-tighter leading-none tabular-nums">
-                <input
-                  type="number"
-                  value={untilH}
-                  onChange={(e) => setUntilH(e.target.value)}
-                  onBlur={() => handleUntilBlur('h')}
-                  className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
-                  placeholder={is24Hour ? "12" : "12"}
-                />
-                <span className="opacity-50 pb-2 mx-1">:</span>
-                <input
-                  type="number"
-                  value={untilM}
-                  onChange={(e) => setUntilM(e.target.value)}
-                  onBlur={() => handleUntilBlur('m')}
-                  className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
-                  placeholder="00"
-                />
-                {!is24Hour && (
-                  <button
-                    onClick={() => setUntilAmPm(untilAmPm === 'AM' ? 'PM' : 'AM')}
-                    className="ml-4 text-[4vw] font-medium opacity-60 hover:opacity-100 transition-opacity bg-zinc-500/10 px-4 py-2 rounded-2xl cursor-pointer"
-                  >
-                    {untilAmPm}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center justify-center text-[12vw] font-bold tracking-tighter leading-none tabular-nums">
-                <input
-                  type="number"
-                  value={Math.floor(timerDuration / 3600).toString().padStart(2, '0')}
-                onChange={(e) => handleDurationChange('h', e.target.value)}
-                className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
-                placeholder="00"
-              />
-              <span className="opacity-50 pb-2 mx-1">:</span>
-              <input
-                type="number"
-                value={Math.floor((timerDuration % 3600) / 60).toString().padStart(2, '0')}
-                onChange={(e) => handleDurationChange('m', e.target.value)}
-                className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
-                placeholder="00"
-              />
-              <span className="opacity-50 pb-2 mx-1">:</span>
-              <input
-                type="number"
-                value={(timerDuration % 60).toString().padStart(2, '0')}
-                onChange={(e) => handleDurationChange('s', e.target.value)}
-                className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
-                placeholder="00"
-              />
-              </div>
-            )
-          ) : (
-            <div className={`text-[12vw] tracking-tighter leading-none tabular-nums select-none flex justify-center overflow-hidden py-4 transition-colors duration-300 ${timerRemaining === 0 ? 'text-red-500' : ''}`} style={currentFontStyle}>
-              <AnimatePresence mode="popLayout">
-                {formatTimer(timerRemaining).split('').map((char, i) => (
-                  <motion.span
-                    key={`${i}-${char}`}
-                    initial={{ opacity: 0, y: "50%" }}
-                    animate={{ opacity: 1, y: "0%" }}
-                    exit={{ opacity: 0, y: "-50%", position: "absolute" }}
-                    transition={{ duration: 0.3, ease: "easeOut" }}
-                    className="inline-block"
-                  >
-                    {char === ' ' ? '\u00A0' : char}
-                  </motion.span>
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {/* Timer Controls */}
-          <div className="flex items-center gap-6">
+        <div className="flex flex-col items-center gap-8 w-full px-4">
+          <div className="flex items-center gap-2 bg-zinc-500/10 p-1 rounded-full">
             <button
-              onClick={toggleTimer}
-              disabled={timerRemaining === 0 && !isTimerRunning}
-              className="w-20 h-20 rounded-full flex items-center justify-center bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100 cursor-pointer shadow-lg"
+              onClick={() => setTimerInputMode('duration')}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${timerInputMode === 'duration' ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900' : 'opacity-60 hover:opacity-100'}`}
             >
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={isTimerRunning ? 'pause' : 'play'}
-                  initial={{ scale: 0.5, opacity: 0, rotate: -90 }}
-                  animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                  exit={{ scale: 0.5, opacity: 0, rotate: 90 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex items-center justify-center"
-                >
-                  {isTimerRunning ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
-                </motion.div>
-              </AnimatePresence>
+              Duration
             </button>
             <button
-              onClick={resetTimer}
-              className="w-16 h-16 rounded-full flex items-center justify-center border-2 border-current/20 hover:bg-zinc-500/10 active:scale-95 transition-all cursor-pointer"
-              title="Reset Timer"
+              onClick={() => setTimerInputMode('until')}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${timerInputMode === 'until' ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900' : 'opacity-60 hover:opacity-100'}`}
             >
-              <RotateCcw size={24} />
+              Until Time
+            </button>
+            <button
+              onClick={() => setTimerInputMode('stopwatch')}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${timerInputMode === 'stopwatch' ? 'bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900' : 'opacity-60 hover:opacity-100'}`}
+            >
+              Stopwatch
             </button>
           </div>
+
+          {timerInputMode === 'stopwatch' ? (
+            <div className="flex flex-col items-center gap-12">
+              <div className="text-[10vw] tracking-tighter leading-none tabular-nums select-none flex justify-center overflow-hidden py-4" style={currentFontStyle}>
+                <AnimatePresence mode="popLayout">
+                  {formatStopwatch(swDisplayMs).split('').map((char, i) => (
+                    <motion.span
+                      key={`${i}-${char}`}
+                      initial={{ opacity: 0, y: "50%" }}
+                      animate={{ opacity: 1, y: "0%" }}
+                      exit={{ opacity: 0, y: "-50%", position: "absolute" }}
+                      transition={{ duration: 0.3, ease: "easeOut" }}
+                      className="inline-block"
+                    >
+                      {char}
+                    </motion.span>
+                  ))}
+                </AnimatePresence>
+              </div>
+
+              {/* Stopwatch Controls */}
+              <div className="flex items-center gap-6">
+                <button
+                  onClick={toggleStopwatch}
+                  className="w-20 h-20 rounded-full flex items-center justify-center bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900 hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-lg"
+                >
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={swRunning ? 'pause' : 'play'}
+                      initial={{ scale: 0.5, opacity: 0, rotate: -90 }}
+                      animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                      exit={{ scale: 0.5, opacity: 0, rotate: 90 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex items-center justify-center"
+                    >
+                      {swRunning ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
+                    </motion.div>
+                  </AnimatePresence>
+                </button>
+                <button
+                  onClick={resetStopwatch}
+                  className="w-16 h-16 rounded-full flex items-center justify-center border-2 border-current/20 hover:bg-zinc-500/10 active:scale-95 transition-all cursor-pointer"
+                  title="Reset Stopwatch"
+                >
+                  <RotateCcw size={24} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {timerInputMode === 'until' ? (
+                <div className="flex items-center justify-center text-[10vw] font-bold tracking-tighter leading-none tabular-nums">
+                  <input
+                    type="number"
+                    value={untilH}
+                    onChange={(e) => setUntilH(e.target.value)}
+                    onBlur={() => handleUntilBlur('h')}
+                    className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
+                    placeholder={is24Hour ? "12" : "12"}
+                  />
+                  <span className="opacity-50 pb-2 mx-1">:</span>
+                  <input
+                    type="number"
+                    value={untilM}
+                    onChange={(e) => setUntilM(e.target.value)}
+                    onBlur={() => handleUntilBlur('m')}
+                    className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
+                    placeholder="00"
+                  />
+                  {!is24Hour && (
+                    <button
+                      onClick={() => setUntilAmPm(untilAmPm === 'AM' ? 'PM' : 'AM')}
+                      className="ml-4 text-[4vw] font-medium opacity-60 hover:opacity-100 transition-opacity bg-zinc-500/10 px-4 py-2 rounded-2xl cursor-pointer"
+                    >
+                      {untilAmPm}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center text-[10vw] font-bold tracking-tighter leading-none tabular-nums">
+                  <input
+                    type="number"
+                    value={Math.floor(timerDuration / 3600).toString().padStart(2, '0')}
+                    onChange={(e) => handleDurationChange('h', e.target.value)}
+                    className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
+                    placeholder="00"
+                  />
+                  <span className="opacity-50 pb-2 mx-1">:</span>
+                  <input
+                    type="number"
+                    value={Math.floor((timerDuration % 3600) / 60).toString().padStart(2, '0')}
+                    onChange={(e) => handleDurationChange('m', e.target.value)}
+                    className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
+                    placeholder="00"
+                  />
+                  <span className="opacity-50 pb-2 mx-1">:</span>
+                  <input
+                    type="number"
+                    value={(timerDuration % 60).toString().padStart(2, '0')}
+                    onChange={(e) => handleDurationChange('s', e.target.value)}
+                    className="w-[1.3em] bg-transparent text-center outline-none hover:bg-zinc-500/10 focus:bg-zinc-500/10 rounded-lg transition-colors cursor-text"
+                    placeholder="00"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 w-full max-w-xs">
+                <input
+                  type="text"
+                  value={timerLabel}
+                  onChange={(e) => setTimerLabel(e.target.value)}
+                  placeholder="Label (e.g. Pasta)"
+                  className="flex-1 px-4 py-2.5 rounded-xl outline-none text-sm font-medium bg-zinc-500/10 focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+                />
+                <button
+                  onClick={startNewTimer}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900 font-medium hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer text-sm"
+                >
+                  <Plus size={16} />
+                  Start
+                </button>
+              </div>
+
+              {/* Running/paused timers list */}
+              {timers.length > 0 && (
+                <div className="flex flex-col gap-3 w-full max-w-sm">
+                  {timers.map(t => (
+                    <div
+                      key={t.id}
+                      className={`flex items-center gap-3 p-4 rounded-2xl transition-colors ${t.done ? 'bg-red-500/10' : 'bg-zinc-500/10'}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        {t.label && <div className="text-xs opacity-50 truncate mb-0.5">{t.label}</div>}
+                        <div className={`text-2xl font-bold tabular-nums tracking-tight ${t.done ? 'text-red-500' : ''}`}>
+                          {t.done ? "Time's Up!" : formatTimer(t.remaining)}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => toggleTimerRun(t.id)}
+                        disabled={t.remaining === 0 && !t.running}
+                        className="w-11 h-11 rounded-full flex items-center justify-center bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                      >
+                        {t.running ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="ml-0.5" />}
+                      </button>
+                      <button
+                        onClick={() => resetTimerItem(t.id)}
+                        className="w-11 h-11 rounded-full flex items-center justify-center border-2 border-current/20 hover:bg-zinc-500/10 active:scale-95 transition-all cursor-pointer shrink-0"
+                        title="Reset"
+                      >
+                        <RotateCcw size={16} />
+                      </button>
+                      <button
+                        onClick={() => removeTimer(t.id)}
+                        className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-red-500/10 hover:text-red-500 active:scale-95 transition-all cursor-pointer shrink-0"
+                        title="Remove"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-8 w-full px-4">
@@ -1274,6 +1510,12 @@ export default function App() {
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-center px-3 select-none">
             {countdownTitle || 'Countdown'}
           </h2>
+          {!isSharedCountdown && activeCountdown?.category && (
+            <span className="-mt-6 text-xs font-mono uppercase tracking-widest opacity-50 px-3 py-1 rounded-full bg-zinc-500/10 flex items-center gap-1.5">
+              <Tags size={12} />
+              {activeCountdown.category}
+            </span>
+          )}
 
           {/* Countdown display */}
           {countdownNotFound ? (
@@ -1313,6 +1555,16 @@ export default function App() {
                 Open in App
               </a>
             )}
+            {!isSharedCountdown && activeCountdown && (
+              <button
+                onClick={() => togglePinCountdown(activeCountdown.id)}
+                title={pinnedCountdownIds.includes(activeCountdown.id) ? 'Unpin' : 'Pin to top'}
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer border-2 text-sm ${pinnedCountdownIds.includes(activeCountdown.id) ? 'border-amber-500 text-amber-500' : 'border-current/20 hover:bg-zinc-500/10'}`}
+              >
+                <Pin size={18} fill={pinnedCountdownIds.includes(activeCountdown.id) ? 'currentColor' : 'none'} />
+                {pinnedCountdownIds.includes(activeCountdown.id) ? 'Pinned' : 'Pin'}
+              </button>
+            )}
             {!isSharedCountdown && (
               <button
                 onClick={() => {
@@ -1321,6 +1573,7 @@ export default function App() {
                   setSetupTarget(countdownTarget ? toLocalDateTimeInputValue(countdownTarget) : '');
                   setSetupSlug(countdownSlug);
                   setSetupSlugTouched(true);
+                  setSetupCategory(activeCountdown?.category || '');
                   setShowCountdownSetup(true);
                 }}
                 className="flex items-center gap-2 px-5 py-3 rounded-xl font-medium border-2 border-current/20 hover:bg-zinc-500/10 active:scale-[0.98] transition-transform cursor-pointer text-sm"
@@ -1344,6 +1597,7 @@ export default function App() {
                   setSetupTarget('');
                   setSetupSlug('');
                   setSetupSlugTouched(false);
+                  setSetupCategory('');
                   setShowCountdownSetup(true);
                 }}
                 className="flex items-center gap-2 px-5 py-3 rounded-xl font-medium border-2 border-current/20 hover:bg-zinc-500/10 active:scale-[0.98] transition-transform cursor-pointer text-sm"
