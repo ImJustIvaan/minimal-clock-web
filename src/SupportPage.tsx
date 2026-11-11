@@ -43,7 +43,7 @@ export default function SupportPage() {
               {[
                 {
                   q: 'Is Minimal Clock free?',
-                  a: 'Yes, the web app at time.ivaan.cc is completely free. The desktop and mobile apps are also free to download.',
+                  a: 'Yes, the web app at clock.gominimal.app is completely free. The desktop and mobile apps are also free to download.',
                 },
                 {
                   q: 'Why is my antivirus / OS flagging the app?',

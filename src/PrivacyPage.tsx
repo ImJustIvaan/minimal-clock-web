@@ -38,7 +38,7 @@ export default function PrivacyPage() {
           <p>
             This policy covers Minimal Clock on every platform it's available on: iPhone/iPad,
             Android, macOS, Windows, Linux, Apple Watch, Apple TV, Android TV, and this website
-            (time.ivaan.cc). They're built and maintained by one person (Ivaan S / @ImJustIvaan),
+            (clock.gominimal.app). They're built and maintained by one person (Ivaan S / @ImJustIvaan),
             not a company, and all of them share the same backend described below.
           </p>
 

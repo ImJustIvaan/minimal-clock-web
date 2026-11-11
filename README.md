@@ -2,7 +2,7 @@
 <img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
 </div>
 
-# Minimal Clock (time.ivaan.cc)
+# Minimal Clock (clock.gominimal.app)
 
 A minimal, distraction-free clock, timer, stopwatch, and countdown web app — the companion to the Minimal Clock mobile app, sharing the same Supabase-backed accounts and countdowns.
 

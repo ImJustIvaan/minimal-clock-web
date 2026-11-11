@@ -425,7 +425,21 @@ export default function App() {
   const [untilAmPm, setUntilAmPm] = useState<'AM' | 'PM'>(() => {
     return (localStorage.getItem('untilAmPm') as 'AM' | 'PM') || 'AM';
   });
-  const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem('welcomed'));
+  const [showWelcome, setShowWelcome] = useState(() => {
+    if (new URLSearchParams(window.location.search).get('coming-from-old-domain') === '1') return false;
+    return !sessionStorage.getItem('welcomed');
+  });
+  // Shown when someone lands here via the time.ivaan.cc -> clock.gominimal.app
+  // redirect (?coming-from-old-domain), so they know to update their bookmark.
+  const [showDomainChangeModal, setShowDomainChangeModal] = useState(() => {
+    return new URLSearchParams(window.location.search).get('coming-from-old-domain') === '1';
+  });
+  useEffect(() => {
+    if (!showDomainChangeModal) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('coming-from-old-domain');
+    window.history.replaceState({}, '', url.toString());
+  }, [showDomainChangeModal]);
   const [examOverMessage, setExamOverMessage] = useState<string | null>(null);
   const lastTriggeredMinute = useRef<string | null>(null);
 
@@ -868,6 +882,31 @@ export default function App() {
   return (
     <div className={`min-h-screen w-full transition-colors duration-700 flex flex-col items-center justify-center relative ${isDarkMode ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900'}`}>
       <AnimatePresence>
+        {showDomainChangeModal && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className={`max-w-md w-full p-8 rounded-3xl shadow-2xl relative ${isDarkMode ? 'bg-zinc-900 text-zinc-50' : 'bg-white text-zinc-900'}`}
+            >
+              <h2 className="text-2xl font-bold mb-4 tracking-tight">We've moved!</h2>
+              <p className="opacity-80 leading-relaxed mb-6">
+                The domain of Minimal Clock has changed. Please use <span className="font-bold">clock.gominimal.app</span> to visit the site from now on — update your bookmarks so you don't lose access later.
+              </p>
+              <button
+                onClick={() => setShowDomainChangeModal(false)}
+                className="w-full py-3 rounded-xl bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900 font-medium hover:scale-[1.02] active:scale-[0.98] transition-transform cursor-pointer text-sm"
+              >
+                Got it
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showWelcome && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -887,7 +926,7 @@ export default function App() {
               <div className={`mt-6 p-4 rounded-2xl border ${isDarkMode ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-50 border-zinc-200'}`}>
                 <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full mb-2 ${isDarkMode ? 'bg-zinc-700 text-zinc-300' : 'bg-zinc-200 text-zinc-600'}`}>NEW</span>
                 <p className="text-sm leading-relaxed opacity-90">
-                  Minimal Clock (time.ivaan.cc) now has an app, download it using the button below!
+                  Minimal Clock (clock.gominimal.app) now has an app, download it using the button below!
                 </p>
                 <button
                   onClick={() => { window.location.href = '/download'; }}
@@ -1104,10 +1143,7 @@ export default function App() {
         {/* Top Left: Branding */}
         <div className="flex items-center gap-2 select-none pointer-events-auto">
           <Clock size={20} />
-          <div className="flex flex-col leading-none">
-            <span className="font-semibold tracking-tight text-sm">Minimal Clock</span>
-            <span className="text-[10px] opacity-40 font-normal tracking-tight">aka Time.Ivaan.CC</span>
-          </div>
+          <span className="font-semibold tracking-tight text-sm">Minimal Clock</span>
         </div>
 
         {/* Top Right: Controls */}
