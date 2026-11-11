@@ -425,10 +425,7 @@ export default function App() {
   const [untilAmPm, setUntilAmPm] = useState<'AM' | 'PM'>(() => {
     return (localStorage.getItem('untilAmPm') as 'AM' | 'PM') || 'AM';
   });
-  const [showWelcome, setShowWelcome] = useState(() => {
-    if (new URLSearchParams(window.location.search).get('coming-from-old-domain') === '1') return false;
-    return !sessionStorage.getItem('welcomed');
-  });
+  const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem('welcomed'));
   // Shown when someone lands here via the time.ivaan.cc -> clock.gominimal.app
   // redirect (?coming-from-old-domain), so they know to update their bookmark.
   const [showDomainChangeModal, setShowDomainChangeModal] = useState(() => {
@@ -907,7 +904,7 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showWelcome && (
+        {showWelcome && !showDomainChangeModal && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
